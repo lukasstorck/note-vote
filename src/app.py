@@ -15,7 +15,21 @@ BASE_DIR = pathlib.Path(__file__).parent
 DATA_FILE = BASE_DIR / 'data' / 'state.json'
 MAX_NOTE_LENGTH = int(os.environ.get('MAX_NOTE_LENGTH', '200'))
 
-app = fastapi.FastAPI(title='Voting Tool')
+# TODO: create board layer where registered users can create boards and each board has its own state and is protected via a secret, not necessarily url based
+ACCESS_SECRET = os.environ.get('ACCESS_SECRET', 'secret-id')
+SECRET_PREFIX = f'/{ACCESS_SECRET}'
+
+app = fastapi.FastAPI(title='Note Vote')
+router = fastapi.APIRouter(prefix=SECRET_PREFIX)
+
+
+@app.middleware('http')
+async def require_secret_path(request: fastapi.Request, call_next: typing.Callable) -> fastapi.Response:
+  path = request.url.path
+  if path != SECRET_PREFIX and not path.startswith(SECRET_PREFIX + '/'):
+    return fastapi.responses.JSONResponse(status_code=403, content={'detail': 'Forbidden'})
+  return await call_next(request)
+
 
 # ---------------------------------------------------------------------------
 # Models
@@ -153,7 +167,7 @@ async def broadcast(message: dict) -> None:
         active_sockets.discard(ws)
 
 
-@app.websocket('/ws')
+@router.websocket('/ws')
 async def ws_endpoint(websocket: fastapi.WebSocket) -> None:
   await websocket.accept()
   with sockets_lock:
@@ -173,12 +187,12 @@ async def ws_endpoint(websocket: fastapi.WebSocket) -> None:
 # ---------------------------------------------------------------------------
 
 
-@app.get('/api/config', response_model=ConfigResponse)
+@router.get('/api/config', response_model=ConfigResponse)
 def get_config() -> ConfigResponse:
   return ConfigResponse(max_note_length=MAX_NOTE_LENGTH)
 
 
-@app.post('/api/session', response_model=BoardSummaryResponse)
+@router.post('/api/session', response_model=BoardSummaryResponse)
 def create_session(payload: BoardSessionRequest) -> BoardSummaryResponse:
   with lock:
     note_responses = [NoteSummaryResponse(**_note_summary(n)) for n in notes.values()]
@@ -196,7 +210,7 @@ def create_session(payload: BoardSessionRequest) -> BoardSummaryResponse:
   return BoardSummaryResponse(notes=note_responses, upvoted=upvoted, downvoted=downvoted)
 
 
-@app.post('/api/notes', response_model=CreateNoteResponse)
+@router.post('/api/notes', response_model=CreateNoteResponse)
 async def create_note(payload: CreateNoteRequest) -> CreateNoteResponse:
   text_hash = hashlib.sha256(payload.text.encode('utf-8')).hexdigest()
 
@@ -222,7 +236,7 @@ async def create_note(payload: CreateNoteRequest) -> CreateNoteResponse:
   return CreateNoteResponse()
 
 
-@app.post('/api/votes', response_model=VoteResponse)
+@router.post('/api/votes', response_model=VoteResponse)
 async def cast_vote(payload: VoteRequest) -> VoteResponse:
   with lock:
     note = notes.get(payload.note_id)
@@ -246,6 +260,9 @@ async def cast_vote(payload: VoteRequest) -> VoteResponse:
   return VoteResponse(tx_id=tx_id)
 
 
-@app.get('/', summary='Static page response')
+@router.get('', summary='Static page response')
 def index() -> fastapi.responses.FileResponse:
   return fastapi.responses.FileResponse(BASE_DIR / 'index.html')
+
+
+app.include_router(router)

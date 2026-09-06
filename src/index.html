@@ -70,6 +70,10 @@
     </div>
 
     <script>
+      // Everything is served under a secret path prefix (see app.py); derive
+      // it from the current URL so the client never has to know the secret.
+      const BASE = location.pathname.replace(/\/+$/, "");
+
       // local storage key for client owned vote transactions
       // needed to restore previous voting state, as votes are anonymous to the server
       const NOTE_VOTES_KEY = "voting_tool_note_votes";
@@ -154,7 +158,7 @@
       // -----------------------------------------------------------------
       async function loadConfig() {
         try {
-          const res = await fetch("/api/config");
+          const res = await fetch(`${BASE}/api/config`);
           const data = await res.json();
           if (
             Number.isInteger(data.max_note_length) &&
@@ -169,10 +173,10 @@
       }
 
       async function loadSession() {
-        const res = await fetch("/api/session", {
+        const res = await fetch(`${BASE}/api/session`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tx_ids: Object.values(noteVotes) }),
+          body: JSON.stringify({ transaction_ids: Object.values(noteVotes) }),
         });
         const data = await res.json();
 
@@ -204,7 +208,7 @@
         submitBtn.disabled = true;
         input.disabled = true;
         try {
-          const res = await fetch("/api/notes", {
+          const res = await fetch(`${BASE}/api/notes`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text }),
@@ -241,7 +245,7 @@
         render();
 
         try {
-          const res = await fetch("/api/votes", {
+          const res = await fetch(`${BASE}/api/votes`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -269,7 +273,7 @@
       // -----------------------------------------------------------------
       function connectWebSocket() {
         const proto = location.protocol === "https:" ? "wss:" : "ws:";
-        const ws = new WebSocket(`${proto}//${location.host}/ws`);
+        const ws = new WebSocket(`${proto}//${location.host}${BASE}/ws`);
 
         ws.onmessage = (event) => {
           const msg = JSON.parse(event.data);

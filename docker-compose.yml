@@ -6,7 +6,8 @@ services:
     ports:
       - "5000:5000"
     environment:
-      MAX_NOTE_LENGTH: "200"
+      MAX_NOTE_LENGTH: 200
+      ACCESS_SECRET: secret-id
     volumes:
       - ./data:/app/data
       - ./src/index.html:/app/index.html
