@@ -1,0 +1,14 @@
+services:
+  voting-tool:
+    container_name: voting-tool
+    build: .
+    command: uvicorn app:app --host 0.0.0.0 --port 5000 --reload
+    ports:
+      - "5000:5000"
+    environment:
+      MAX_NOTE_LENGTH: "200"
+    volumes:
+      - ./data:/app/data
+      - ./src/index.html:/app/index.html
+      - ./src/app.py:/app/app.py
+    restart: unless-stopped

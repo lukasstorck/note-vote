@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Suggestions Voting Tool</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+      rel="stylesheet"
+    />
+    <style>
+      .masonry {
+        column-count: 1;
+        column-gap: 1rem;
+      }
+      @media (min-width: 576px) {
+        .masonry {
+          column-count: 2;
+        }
+      }
+      @media (min-width: 992px) {
+        .masonry {
+          column-count: 3;
+        }
+      }
+      @media (min-width: 1400px) {
+        .masonry {
+          column-count: 4;
+        }
+      }
+      .masonry .card {
+        break-inside: avoid;
+        margin-bottom: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container py-4">
+      <h1 class="text-center mb-4">Suggestions Voting Tool</h1>
+
+      <div class="row justify-content-center mb-4">
+        <div class="col-12">
+          <form id="note-form" class="d-flex gap-2">
+            <input
+              type="text"
+              id="note-input"
+              class="form-control"
+              placeholder="Enter a suggestion..."
+              required
+            />
+            <button type="submit" id="note-submit" class="btn btn-primary">
+              Add
+            </button>
+          </form>
+          <div id="form-error" class="text-danger mt-1 small"></div>
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-end mb-2">
+        <button id="sort-toggle" class="btn btn-sm btn-outline-secondary">
+          <i class="fa-solid fa-arrow-down-wide-short"></i> Sort by score
+        </button>
+      </div>
+
+      <div id="notes-list" class="masonry"></div>
+    </div>
+
+    <script>
+      // local storage key for client owned vote transactions
+      // needed to restore previous voting state, as votes are anonymous to the server
+      const NOTE_VOTES_KEY = "voting_tool_note_votes";
+
+      function loadNoteVotes() {
+        try {
+          return JSON.parse(localStorage.getItem(NOTE_VOTES_KEY) || "{}");
+        } catch {
+          return {};
+        }
+      }
+
+      function storeNoteVote(noteId, txId) {
+        const votes = loadNoteVotes();
+        votes[noteId] = txId;
+        localStorage.setItem(NOTE_VOTES_KEY, JSON.stringify(votes));
+      }
+
+      const noteVotes = loadNoteVotes();
+
+      // -----------------------------------------------------------------
+      // State: note_id -> { id, text, up, down, myVote }
+      // -----------------------------------------------------------------
+      const notes = {};
+      const pending = new Set();
+      let sortByScore = false;
+
+      const listEl = document.getElementById("notes-list");
+      const sortToggle = document.getElementById("sort-toggle");
+
+      sortToggle.addEventListener("click", () => {
+        sortByScore = !sortByScore;
+        sortToggle.classList.toggle("active", sortByScore);
+        render();
+      });
+
+      function render() {
+        const items = Object.values(notes);
+        if (sortByScore) {
+          items.sort((a, b) => b.up - b.down - (a.up - a.down));
+        }
+        listEl.innerHTML = "";
+        for (const item of items) {
+          const isPending = pending.has(item.id);
+          const card = document.createElement("div");
+          card.className = "card";
+          card.innerHTML = `
+          <div class="card-body d-flex flex-column justify-content-between">
+            <p class="card-text text-break">${escapeHtml(item.text)}</p>
+            <div class="d-flex gap-2">
+              <button class="btn btn-sm ${item.myVote === 1 ? "btn-success" : "btn-outline-success"}"
+                data-id="${item.id}" data-value="1" ${isPending ? "disabled" : ""}
+              ><i class="fa-solid fa-thumbs-up"></i> ${item.up}</button>
+              <button class="btn btn-sm ${item.myVote === -1 ? "btn-danger" : "btn-outline-danger"}"
+                data-id="${item.id}" data-value="-1" ${isPending ? "disabled" : ""}
+              ><i class="fa-solid fa-thumbs-down"></i> ${item.down}</button>
+            </div>
+          </div>
+        `;
+          listEl.appendChild(card);
+        }
+      }
+
+      function escapeHtml(str) {
+        const div = document.createElement("div");
+        div.textContent = str;
+        return div.innerHTML;
+      }
+
+      function errorMessage(data) {
+        const detail = data && data.detail;
+        if (!detail) return "Something went wrong.";
+        if (typeof detail === "string") return detail;
+        if (Array.isArray(detail)) {
+          return detail.map((e) => e.msg || JSON.stringify(e)).join(" ");
+        }
+        return "Something went wrong.";
+      }
+
+      // -----------------------------------------------------------------
+      // Session init
+      // -----------------------------------------------------------------
+      async function loadConfig() {
+        try {
+          const res = await fetch("/api/config");
+          const data = await res.json();
+          if (
+            Number.isInteger(data.max_note_length) &&
+            data.max_note_length > 0
+          ) {
+            input.maxLength = data.max_note_length;
+          }
+        } catch {
+          // If config can't be loaded, leave the input unrestricted client-side;
+          // the server still enforces the real limit.
+        }
+      }
+
+      async function loadSession() {
+        const res = await fetch("/api/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tx_ids: Object.values(noteVotes) }),
+        });
+        const data = await res.json();
+
+        const upSet = new Set(data.upvoted);
+        const downSet = new Set(data.downvoted);
+        for (const n of data.notes) {
+          let myVote = 0;
+          if (upSet.has(n.id)) myVote = 1;
+          else if (downSet.has(n.id)) myVote = -1;
+          notes[n.id] = { ...n, myVote };
+        }
+        render();
+      }
+
+      // -----------------------------------------------------------------
+      // Creating notes
+      // -----------------------------------------------------------------
+      const form = document.getElementById("note-form");
+      const input = document.getElementById("note-input");
+      const submitBtn = document.getElementById("note-submit");
+      const errorEl = document.getElementById("form-error");
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        errorEl.textContent = "";
+        const text = input.value.trim();
+        if (!text) return;
+
+        submitBtn.disabled = true;
+        input.disabled = true;
+        try {
+          const res = await fetch("/api/notes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(errorMessage(data));
+          }
+          input.value = "";
+        } catch (err) {
+          errorEl.textContent = err.message;
+        } finally {
+          submitBtn.disabled = false;
+          input.disabled = false;
+        }
+      });
+
+      // -----------------------------------------------------------------
+      // Voting
+      // -----------------------------------------------------------------
+      listEl.addEventListener("click", async (e) => {
+        const btn = e.target.closest("button[data-id]");
+        if (!btn) return;
+
+        const noteId = btn.dataset.id;
+        const clicked = Number(btn.dataset.value);
+        if (pending.has(noteId)) return;
+
+        const note = notes[noteId];
+        const newValue = note.myVote === clicked ? 0 : clicked;
+        const replaces = noteVotes[noteId] || null;
+
+        pending.add(noteId);
+        render();
+
+        try {
+          const res = await fetch("/api/votes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              note_id: noteId,
+              value: newValue,
+              replaces,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(errorMessage(data));
+
+          storeNoteVote(noteId, data.tx_id);
+          noteVotes[noteId] = data.tx_id;
+          note.myVote = newValue;
+        } catch (err) {
+          errorEl.textContent = err.message;
+        } finally {
+          pending.delete(noteId);
+          render();
+        }
+      });
+
+      // -----------------------------------------------------------------
+      // WebSocket: live updates
+      // -----------------------------------------------------------------
+      function connectWebSocket() {
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+        ws.onmessage = (event) => {
+          const msg = JSON.parse(event.data);
+          if (msg.event === "note_created") {
+            if (!notes[msg.note.id]) {
+              notes[msg.note.id] = { ...msg.note, myVote: 0 };
+              render();
+            }
+          } else if (msg.event === "vote_updated") {
+            const note = notes[msg.note_id];
+            if (note) {
+              note.up = msg.up;
+              note.down = msg.down;
+              render();
+            }
+          }
+        };
+        ws.onclose = () => setTimeout(connectWebSocket, 1000);
+        ws.onerror = () => ws.close();
+      }
+
+      Promise.all([loadConfig(), loadSession()]).then(connectWebSocket);
+    </script>
+  </body>
+</html>
