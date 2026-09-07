@@ -1,5 +1,7 @@
 # NoteVote
 
+<img src="media/demo.png" alt="NoteVote demo: a board of suggestions and votes for burgers, sushi, noodles and pizza. Burgers are leading.">
+
 NoteVote is a lightweight tool for collecting suggestions and voting on them. Users submit short text notes and cast upvotes or downvotes on notes submitted by others.
 
 ## How it works
