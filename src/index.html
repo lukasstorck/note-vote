@@ -14,27 +14,26 @@
     />
     <style>
       .masonry {
-        column-count: 1;
-        column-gap: 1rem;
+        display: grid;
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+        gap: 1rem;
+        align-items: start;
+        grid-auto-rows: min-content;
       }
       @media (min-width: 576px) {
         .masonry {
-          column-count: 2;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
       }
       @media (min-width: 992px) {
         .masonry {
-          column-count: 3;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
         }
       }
       @media (min-width: 1400px) {
         .masonry {
-          column-count: 4;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
         }
-      }
-      .masonry .card {
-        break-inside: avoid;
-        margin-bottom: 1rem;
       }
     </style>
   </head>
@@ -66,7 +65,7 @@
         </button>
       </div>
 
-      <div id="notes-list" class="masonry"></div>
+      <div id="notes-list" class="masonry" data-mason-it></div>
     </div>
 
     <script>
@@ -115,25 +114,30 @@
         if (sortByScore) {
           items.sort((a, b) => b.up - b.down - (a.up - a.down));
         }
+
         listEl.innerHTML = "";
         for (const item of items) {
           const isPending = pending.has(item.id);
           const card = document.createElement("div");
           card.className = "card";
           card.innerHTML = `
-          <div class="card-body d-flex flex-column justify-content-between">
-            <p class="card-text text-break">${escapeHtml(item.text)}</p>
-            <div class="d-flex gap-2">
-              <button class="btn btn-sm ${item.myVote === 1 ? "btn-success" : "btn-outline-success"}"
-                data-id="${item.id}" data-value="1" ${isPending ? "disabled" : ""}
-              ><i class="fa-solid fa-thumbs-up"></i> ${item.up}</button>
-              <button class="btn btn-sm ${item.myVote === -1 ? "btn-danger" : "btn-outline-danger"}"
-                data-id="${item.id}" data-value="-1" ${isPending ? "disabled" : ""}
-              ><i class="fa-solid fa-thumbs-down"></i> ${item.down}</button>
+            <div class="card-body d-flex flex-column justify-content-between">
+              <p class="card-text text-break">${escapeHtml(item.text)}</p>
+              <div class="d-flex gap-2">
+                <button class="btn btn-sm ${item.myVote === 1 ? "btn-success" : "btn-outline-success"}"
+                  data-id="${item.id}" data-value="1" ${isPending ? "disabled" : ""}
+                ><i class="fa-solid fa-thumbs-up"></i> ${item.up}</button>
+                <button class="btn btn-sm ${item.myVote === -1 ? "btn-danger" : "btn-outline-danger"}"
+                  data-id="${item.id}" data-value="-1" ${isPending ? "disabled" : ""}
+                ><i class="fa-solid fa-thumbs-down"></i> ${item.down}</button>
+              </div>
             </div>
-          </div>
-        `;
+          `;
           listEl.appendChild(card);
+        }
+
+        if (window.MasonIt) {
+          window.MasonIt.refresh(listEl);
         }
       }
 
@@ -297,5 +301,7 @@
 
       Promise.all([loadConfig(), loadSession()]).then(connectWebSocket);
     </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/mason-it@1.0.1/dist/mason-it.min.js"></script>
   </body>
 </html>
