@@ -68,6 +68,32 @@
       <div id="notes-list" class="masonry" data-mason-it></div>
     </div>
 
+    <template id="note-card-template">
+      <div class="card">
+        <div class="card-body d-flex flex-column justify-content-between">
+          <p class="card-text text-break note-text"></p>
+          <div class="d-flex gap-2">
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-success vote-up"
+              data-value="1"
+            >
+              <i class="fa-solid fa-thumbs-up"></i>
+              <span class="up-count"></span>
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-danger vote-down"
+              data-value="-1"
+            >
+              <i class="fa-solid fa-thumbs-down"></i>
+              <span class="down-count"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </template>
+
     <script>
       // Everything is served under a secret path prefix (see app.py); derive
       // it from the current URL so the client never has to know the secret.
@@ -102,6 +128,7 @@
 
       const listEl = document.getElementById("notes-list");
       const sortToggle = document.getElementById("sort-toggle");
+      const cardTemplate = document.getElementById("note-card-template");
 
       sortToggle.addEventListener("click", () => {
         sortByScore = !sortByScore;
@@ -109,42 +136,46 @@
         render();
       });
 
+      function buildCard(item) {
+        const fragment = cardTemplate.content.cloneNode(true);
+        const card = fragment.querySelector(".card");
+        const upvoteButton = fragment.querySelector(".vote-up");
+        const downvoteButton = fragment.querySelector(".vote-down");
+        const isPending = pending.has(item.id);
+
+        card.dataset.id = item.id;
+        fragment.querySelector(".note-text").textContent = item.text;
+        fragment.querySelector(".up-count").textContent = item.up;
+        fragment.querySelector(".down-count").textContent = item.down;
+
+        upvoteButton.classList.toggle("btn-success", item.myVote === 1);
+        upvoteButton.classList.toggle("btn-outline-success", item.myVote !== 1);
+        downvoteButton.classList.toggle("btn-danger", item.myVote === -1);
+        downvoteButton.classList.toggle(
+          "btn-outline-danger",
+          item.myVote !== -1,
+        );
+        upvoteButton.disabled = isPending;
+        downvoteButton.disabled = isPending;
+
+        return card;
+      }
+
       function render() {
         const items = Object.values(notes);
         if (sortByScore) {
           items.sort((a, b) => b.up - b.down - (a.up - a.down));
         }
 
-        listEl.innerHTML = "";
+        listEl.replaceChildren();
         for (const item of items) {
-          const isPending = pending.has(item.id);
-          const card = document.createElement("div");
-          card.className = "card";
-          card.innerHTML = `
-            <div class="card-body d-flex flex-column justify-content-between">
-              <p class="card-text text-break">${escapeHtml(item.text)}</p>
-              <div class="d-flex gap-2">
-                <button class="btn btn-sm ${item.myVote === 1 ? "btn-success" : "btn-outline-success"}"
-                  data-id="${item.id}" data-value="1" ${isPending ? "disabled" : ""}
-                ><i class="fa-solid fa-thumbs-up"></i> ${item.up}</button>
-                <button class="btn btn-sm ${item.myVote === -1 ? "btn-danger" : "btn-outline-danger"}"
-                  data-id="${item.id}" data-value="-1" ${isPending ? "disabled" : ""}
-                ><i class="fa-solid fa-thumbs-down"></i> ${item.down}</button>
-              </div>
-            </div>
-          `;
-          listEl.appendChild(card);
+          listEl.appendChild(buildCard(item));
         }
 
+        // send layout refresh to mason-it
         if (window.MasonIt) {
           window.MasonIt.refresh(listEl);
         }
-      }
-
-      function escapeHtml(str) {
-        const div = document.createElement("div");
-        div.textContent = str;
-        return div.innerHTML;
       }
 
       function errorMessage(data) {
@@ -234,10 +265,12 @@
       // Voting
       // -----------------------------------------------------------------
       listEl.addEventListener("click", async (e) => {
-        const btn = e.target.closest("button[data-id]");
+        const btn = e.target.closest("button[data-value]");
         if (!btn) return;
+        const card = btn.closest(".card");
+        if (!card) return;
 
-        const noteId = btn.dataset.id;
+        const noteId = card.dataset.id;
         const clicked = Number(btn.dataset.value);
         if (pending.has(noteId)) return;
 
